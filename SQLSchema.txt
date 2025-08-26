@@ -1,0 +1,447 @@
+-- Complete Database Setup for Lethbridge AI
+-- Run this entire script in your Supabase SQL editor
+
+-- 1. PROFILES TABLE
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE NOT NULL,
+  display_name TEXT,
+  avatar_url TEXT,
+  bio TEXT,
+  profile_type TEXT DEFAULT 'personal' CHECK (profile_type IN ('personal', 'business')),
+  active_listings_count INTEGER DEFAULT 0,
+  max_listings_allowed INTEGER DEFAULT 5,
+  is_verified BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. BUSINESSES TABLE
+CREATE TABLE IF NOT EXISTS public.businesses (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT NOT NULL,
+  address TEXT,
+  phone TEXT,
+  email TEXT,
+  website TEXT,
+  logo_url TEXT,
+  owner_id UUID REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE NOT NULL,
+  subscription_tier TEXT DEFAULT 'free',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. BUSINESS SUBSCRIPTION TIERS TABLE
+CREATE TABLE IF NOT EXISTS public.business_subscription_tiers (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  price_monthly DECIMAL(10,2) DEFAULT 0,
+  max_events_per_month INTEGER DEFAULT 5,
+  max_images_per_event INTEGER DEFAULT 3,
+  ai_agent_enabled BOOLEAN DEFAULT false,
+  analytics_enabled BOOLEAN DEFAULT false,
+  featured_placement BOOLEAN DEFAULT false,
+  custom_branding BOOLEAN DEFAULT false,
+  priority_support BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. EVENTS TABLE
+CREATE TABLE IF NOT EXISTS public.events (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  location TEXT NOT NULL,
+  address TEXT,
+  start_date TIMESTAMPTZ NOT NULL,
+  end_date TIMESTAMPTZ,
+  cost DECIMAL(10,2) DEFAULT 0,
+  is_free BOOLEAN DEFAULT false,
+  age_min INTEGER DEFAULT 0,
+  age_max INTEGER DEFAULT 99,
+  category TEXT NOT NULL,
+  tags TEXT[],
+  image_url TEXT,
+  website_url TEXT,
+  organizer_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  business_id UUID REFERENCES public.businesses(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  is_approved BOOLEAN DEFAULT true,
+  is_featured BOOLEAN DEFAULT false,
+  featured BOOLEAN DEFAULT false,
+  view_count INTEGER DEFAULT 0,
+  moderation_status TEXT DEFAULT 'approved' CHECK (moderation_status IN ('pending', 'approved', 'rejected'))
+);
+
+-- 5. EVENT IMAGES TABLE
+CREATE TABLE IF NOT EXISTS public.event_images (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  event_id UUID REFERENCES public.events(id) ON DELETE CASCADE,
+  image_url TEXT NOT NULL,
+  caption TEXT,
+  is_primary BOOLEAN DEFAULT false,
+  moderation_status TEXT DEFAULT 'approved' CHECK (moderation_status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. PERSONAL LISTINGS TABLE
+CREATE TABLE IF NOT EXISTS public.personal_listings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+  listing_type TEXT NOT NULL CHECK (listing_type IN ('offer', 'request', 'event')),
+  price DECIMAL(10,2),
+  price_type TEXT CHECK (price_type IN ('fixed', 'negotiable', 'free')),
+  location TEXT,
+  contact_method TEXT NOT NULL DEFAULT 'in_app' CHECK (contact_method IN ('message', 'email', 'phone', 'in_app')),
+  contact_details JSONB DEFAULT '{}'::jsonb,
+  start_date TIMESTAMPTZ,
+  end_date TIMESTAMPTZ,
+  images JSONB DEFAULT '[]'::jsonb,
+  is_active BOOLEAN DEFAULT true,
+  view_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  moderation_status TEXT DEFAULT 'approved' CHECK (moderation_status IN ('pending', 'approved', 'rejected'))
+);
+
+-- 7. USER PREFERENCES TABLE
+CREATE TABLE IF NOT EXISTS public.user_preferences (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE NOT NULL,
+  preferred_categories TEXT[],
+  has_children BOOLEAN DEFAULT false,
+  children_ages INTEGER[],
+  notification_enabled BOOLEAN DEFAULT true,
+  max_event_cost DECIMAL(10,2),
+  preferred_price_range TEXT,
+  preferred_days TEXT[],
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. USER INTERACTIONS TABLE
+CREATE TABLE IF NOT EXISTS public.user_interactions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  event_id UUID REFERENCES public.events(id) ON DELETE CASCADE,
+  interaction_type TEXT NOT NULL CHECK (interaction_type IN ('view', 'save', 'share', 'attend')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, event_id, interaction_type)
+);
+
+-- 9. BUSINESS AI AGENTS TABLE
+CREATE TABLE IF NOT EXISTS public.business_ai_agents (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  business_id UUID REFERENCES public.businesses(id) ON DELETE CASCADE UNIQUE NOT NULL,
+  agent_name TEXT DEFAULT 'Business Assistant',
+  agent_personality TEXT DEFAULT 'professional' CHECK (agent_personality IN ('professional', 'friendly', 'casual')),
+  welcome_message TEXT,
+  is_active BOOLEAN DEFAULT false,
+  max_response_length INTEGER DEFAULT 500,
+  business_info JSONB DEFAULT '{}'::jsonb,
+  menu_data JSONB DEFAULT '{}'::jsonb,
+  faq_data JSONB DEFAULT '[]'::jsonb,
+  policies JSONB DEFAULT '{}'::jsonb,
+  monthly_queries_used INTEGER DEFAULT 0,
+  monthly_queries_limit INTEGER DEFAULT 1000,
+  last_reset_date DATE DEFAULT CURRENT_DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 10. CHAT CONVERSATIONS TABLE
+CREATE TABLE IF NOT EXISTS public.chat_conversations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  business_id UUID REFERENCES public.businesses(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  session_id TEXT NOT NULL,
+  messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+  total_tokens_used INTEGER DEFAULT 0,
+  user_satisfaction_rating INTEGER CHECK (user_satisfaction_rating BETWEEN 1 AND 5),
+  resolved_query BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. CONTENT MODERATION LOGS TABLE
+CREATE TABLE IF NOT EXISTS public.content_moderation_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  content_type TEXT NOT NULL,
+  content_id UUID NOT NULL,
+  content_table TEXT NOT NULL,
+  moderation_result JSONB,
+  action_taken TEXT,
+  moderated_by UUID REFERENCES auth.users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. CREATE ALL INDEXES
+CREATE INDEX idx_profiles_user_id ON public.profiles(user_id);
+CREATE INDEX idx_profiles_profile_type ON public.profiles(profile_type);
+CREATE INDEX idx_businesses_owner_id ON public.businesses(owner_id);
+CREATE INDEX idx_events_start_date ON public.events(start_date);
+CREATE INDEX idx_events_category ON public.events(category);
+CREATE INDEX idx_events_business_id ON public.events(business_id);
+CREATE INDEX idx_events_organizer_id ON public.events(organizer_id);
+CREATE INDEX idx_event_images_event_id ON public.event_images(event_id);
+CREATE INDEX idx_personal_listings_user_id ON public.personal_listings(user_id);
+CREATE INDEX idx_personal_listings_category ON public.personal_listings(category);
+CREATE INDEX idx_personal_listings_listing_type ON public.personal_listings(listing_type);
+CREATE INDEX idx_user_preferences_user_id ON public.user_preferences(user_id);
+CREATE INDEX idx_user_interactions_user_id ON public.user_interactions(user_id);
+CREATE INDEX idx_user_interactions_event_id ON public.user_interactions(event_id);
+CREATE INDEX idx_business_ai_agents_business_id ON public.business_ai_agents(business_id);
+CREATE INDEX idx_chat_conversations_business_id ON public.chat_conversations(business_id);
+CREATE INDEX idx_chat_conversations_session_id ON public.chat_conversations(session_id);
+
+-- 13. ENABLE ROW LEVEL SECURITY ON ALL TABLES
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.businesses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.business_subscription_tiers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_images ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.personal_listings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_interactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.business_ai_agents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.content_moderation_logs ENABLE ROW LEVEL SECURITY;
+
+-- 14. CREATE RLS POLICIES
+
+-- PROFILES POLICIES
+CREATE POLICY "Public profiles are viewable" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can view own profile" ON public.profiles FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- BUSINESSES POLICIES
+CREATE POLICY "Public can view businesses" ON public.businesses FOR SELECT USING (true);
+CREATE POLICY "Users can create businesses" ON public.businesses FOR INSERT WITH CHECK (auth.uid() = owner_id);
+CREATE POLICY "Users can update own business" ON public.businesses FOR UPDATE USING (auth.uid() = owner_id);
+CREATE POLICY "Users can delete own business" ON public.businesses FOR DELETE USING (auth.uid() = owner_id);
+
+-- SUBSCRIPTION TIERS POLICIES
+CREATE POLICY "Public can view subscription tiers" ON public.business_subscription_tiers FOR SELECT USING (true);
+
+-- EVENTS POLICIES
+CREATE POLICY "Public events are viewable by everyone" ON public.events FOR SELECT USING (is_approved = true);
+CREATE POLICY "Users can create events" ON public.events FOR INSERT WITH CHECK (auth.uid() = organizer_id);
+CREATE POLICY "Users can update own events" ON public.events FOR UPDATE USING (auth.uid() = organizer_id);
+CREATE POLICY "Users can delete own events" ON public.events FOR DELETE USING (auth.uid() = organizer_id);
+
+-- EVENT IMAGES POLICIES
+CREATE POLICY "Public can view approved event images" ON public.event_images FOR SELECT USING (moderation_status = 'approved');
+CREATE POLICY "Event owners can manage images" ON public.event_images FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM public.events 
+    WHERE events.id = event_images.event_id 
+    AND events.organizer_id = auth.uid()
+  )
+);
+
+-- PERSONAL LISTINGS POLICIES
+CREATE POLICY "Approved listings are public" ON public.personal_listings FOR SELECT 
+  USING (moderation_status = 'approved' AND is_active = true);
+CREATE POLICY "Users can view own listings" ON public.personal_listings FOR SELECT 
+  USING (auth.uid() = user_id);
+CREATE POLICY "Users can create listings" ON public.personal_listings FOR INSERT 
+  WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own listings" ON public.personal_listings FOR UPDATE 
+  USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own listings" ON public.personal_listings FOR DELETE 
+  USING (auth.uid() = user_id);
+
+-- USER PREFERENCES POLICIES
+CREATE POLICY "Users can view own preferences" ON public.user_preferences FOR SELECT 
+  USING (auth.uid() = user_id);
+CREATE POLICY "Users can create own preferences" ON public.user_preferences FOR INSERT 
+  WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own preferences" ON public.user_preferences FOR UPDATE 
+  USING (auth.uid() = user_id);
+
+-- USER INTERACTIONS POLICIES
+CREATE POLICY "Users can view own interactions" ON public.user_interactions FOR SELECT 
+  USING (auth.uid() = user_id);
+CREATE POLICY "Users can create own interactions" ON public.user_interactions FOR INSERT 
+  WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete own interactions" ON public.user_interactions FOR DELETE 
+  USING (auth.uid() = user_id);
+
+-- BUSINESS AI AGENTS POLICIES
+CREATE POLICY "Business owners can view AI agents" ON public.business_ai_agents FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM public.businesses 
+    WHERE businesses.id = business_ai_agents.business_id 
+    AND businesses.owner_id = auth.uid()
+  )
+);
+CREATE POLICY "Business owners can manage AI agents" ON public.business_ai_agents FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM public.businesses 
+    WHERE businesses.id = business_ai_agents.business_id 
+    AND businesses.owner_id = auth.uid()
+  )
+);
+
+-- CHAT CONVERSATIONS POLICIES
+CREATE POLICY "Business owners can view conversations" ON public.chat_conversations FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM public.businesses 
+    WHERE businesses.id = chat_conversations.business_id 
+    AND businesses.owner_id = auth.uid()
+  )
+);
+CREATE POLICY "Users can view own conversations" ON public.chat_conversations FOR SELECT 
+  USING (auth.uid() = user_id);
+
+-- 15. CREATE FUNCTIONS
+
+-- Handle new user signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (user_id, display_name, profile_type)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
+    COALESCE(NEW.raw_user_meta_data->>'profile_type', 'personal')
+  )
+  ON CONFLICT (user_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Update timestamp function
+CREATE OR REPLACE FUNCTION public.handle_updated_at()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Increment event view count
+CREATE OR REPLACE FUNCTION public.increment_view_count(event_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.events 
+  SET view_count = view_count + 1 
+  WHERE id = event_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Increment listing count
+CREATE OR REPLACE FUNCTION public.increment_listing_count(user_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.profiles 
+  SET active_listings_count = active_listings_count + 1 
+  WHERE profiles.user_id = increment_listing_count.user_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Decrement listing count
+CREATE OR REPLACE FUNCTION public.decrement_listing_count(user_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.profiles 
+  SET active_listings_count = GREATEST(0, active_listings_count - 1) 
+  WHERE profiles.user_id = decrement_listing_count.user_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Increment AI queries
+CREATE OR REPLACE FUNCTION public.increment_ai_queries(business_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.business_ai_agents 
+  SET monthly_queries_used = monthly_queries_used + 1 
+  WHERE business_ai_agents.business_id = increment_ai_queries.business_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Monthly reset for AI queries
+CREATE OR REPLACE FUNCTION public.reset_monthly_ai_queries()
+RETURNS void AS $$
+BEGIN
+  UPDATE public.business_ai_agents 
+  SET monthly_queries_used = 0, 
+      last_reset_date = CURRENT_DATE
+  WHERE last_reset_date < CURRENT_DATE - INTERVAL '30 days';
+END;
+$$ LANGUAGE plpgsql;
+
+-- 16. CREATE TRIGGERS
+
+-- Auto-create profile on user signup
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Update timestamp triggers
+CREATE TRIGGER handle_profiles_updated_at BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+CREATE TRIGGER handle_businesses_updated_at BEFORE UPDATE ON public.businesses
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+CREATE TRIGGER handle_events_updated_at BEFORE UPDATE ON public.events
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+CREATE TRIGGER handle_personal_listings_updated_at BEFORE UPDATE ON public.personal_listings
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+CREATE TRIGGER handle_user_preferences_updated_at BEFORE UPDATE ON public.user_preferences
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+CREATE TRIGGER handle_business_ai_agents_updated_at BEFORE UPDATE ON public.business_ai_agents
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- 17. INSERT DEFAULT SUBSCRIPTION TIERS
+INSERT INTO public.business_subscription_tiers (name, display_name, price_monthly, max_events_per_month, max_images_per_event, ai_agent_enabled, analytics_enabled, featured_placement, custom_branding, priority_support)
+VALUES 
+  ('free', 'Free', 0, 5, 3, false, false, false, false, false),
+  ('basic', 'Basic', 29.99, 20, 5, true, true, false, false, false),
+  ('professional', 'Professional', 79.99, 50, 10, true, true, true, true, false),
+  ('enterprise', 'Enterprise', 199.99, -1, 20, true, true, true, true, true)
+ON CONFLICT (name) DO NOTHING;
+
+-- 18. CREATE SAMPLE DATA (OPTIONAL - Remove this section if you don't want sample data)
+-- Sample categories for events
+INSERT INTO public.events (title, description, location, address, start_date, category, is_free, organizer_id)
+SELECT 
+  'Sample Event ' || generate_series,
+  'This is a sample event description for testing purposes.',
+  'Lethbridge Community Center',
+  '123 Main St, Lethbridge, AB',
+  NOW() + (generate_series || ' days')::interval,
+  (ARRAY['Family & Kids', 'Sports & Recreation', 'Arts & Culture', 'Music & Concerts', 'Community'])[floor(random() * 5 + 1)],
+  random() > 0.5,
+  auth.uid()
+FROM generate_series(1, 0)
+WHERE auth.uid() IS NOT NULL;
+
+-- 19. GRANT NECESSARY PERMISSIONS
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+
+-- 20. CREATE PROFILES FOR EXISTING USERS
+INSERT INTO public.profiles (user_id, display_name, profile_type)
+SELECT 
+  id,
+  COALESCE(raw_user_meta_data->>'display_name', split_part(email, '@', 1)),
+  COALESCE(raw_user_meta_data->>'profile_type', 'personal')
+FROM auth.users
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.profiles WHERE profiles.user_id = auth.users.id
+);
